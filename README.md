@@ -1,5 +1,6 @@
 # Kerla
 [![CI](https://github.com/nuta/kerla/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nuta/kerla/actions/workflows/ci.yml)
+[![Discord Chat](https://img.shields.io/discord/904705655095582752?logo=discord&style=social)](https://discord.gg/6Pu4ujpp6h)
 
 <p align="center">
     <img src="assets/kerla-transparent.png" />
@@ -29,7 +30,7 @@ me): we automatically launch a dedicated microVM on Firecracker for each TCP
 connection.
 
 ```
-$ ssh root@kerla-demo.seiya.me
+$ ssh root@demo.kerla.dev
 ```
 
 If you found bugs or missing features, let me know on GitHub issues :)
@@ -62,7 +63,7 @@ This feature is in a very early stage and I guess **almost all images out there 
 
 ## Building and Running the OS
 
-See [Quickstart](https://github.com/nuta/kerla/blob/main/Documentation/quickstart.md) for instructions on building from source, running on emulators, etc.
+See [Quickstart](https://kerla.dev/docs/quickstart.html) for instructions on building from source, running on emulators, etc.
 
 ## Current Roadmap
 [Roadmap - Run a Node.js Web Application on Kerla on Firecracker on AWS](https://github.com/nuta/kerla/projects/1)

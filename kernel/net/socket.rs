@@ -1,7 +1,8 @@
-use crate::{arch::UserVAddr, result::*};
+use crate::result::*;
 use bitflags::bitflags;
 use core::convert::TryFrom;
 use core::mem::size_of;
+use kerla_runtime::address::UserVAddr;
 use smoltcp::wire::{IpAddress, IpEndpoint, Ipv4Address};
 
 bitflags! {
@@ -30,6 +31,17 @@ pub const IPPROTO_UDP: i32 = 17;
 pub type sa_family_t = u16;
 #[allow(non_camel_case_types)]
 pub type socklen_t = u32;
+
+/// The `how` argument in `shutdown(2)`.
+#[repr(i32)]
+pub enum ShutdownHow {
+    /// `SHUT_RD`.
+    Rd = 0,
+    /// `SHUT_WR`.
+    Wr = 1,
+    /// `SHUT_RDWR`.
+    RdWr = 2,
+}
 
 #[non_exhaustive]
 #[derive(Debug, Clone)]

@@ -6,12 +6,12 @@ use crate::{
         inode::{DirEntry, Directory, FileLike, FileType, INode, INodeNo},
         path::Path,
         stat::FileMode,
-        stat::{Stat, S_IFDIR},
+        stat::{FileSize, Stat, S_IFDIR},
     },
     prelude::*,
     user_buffer::{UserBufWriter, UserBuffer, UserBufferMut},
 };
-use core::str::from_utf8_unchecked;
+use core::{fmt, str::from_utf8_unchecked};
 use hashbrown::HashMap;
 use kerla_utils::byte_size::ByteSize;
 use kerla_utils::bytes_parser::BytesParser;
@@ -51,6 +51,14 @@ impl FileLike for InitramFsFile {
 
     fn stat(&self) -> Result<Stat> {
         Ok(self.stat)
+    }
+}
+
+impl fmt::Debug for InitramFsFile {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InitramFsFile")
+            .field("name", &self.filename)
+            .finish()
     }
 }
 
@@ -117,6 +125,14 @@ impl Directory for InitramFsDir {
     }
 }
 
+impl fmt::Debug for InitramFsDir {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InitramFsDir")
+            .field("name", &self.filename)
+            .finish()
+    }
+}
+
 struct InitramFsSymlink {
     filename: &'static str,
     stat: Stat,
@@ -130,6 +146,14 @@ impl Symlink for InitramFsSymlink {
 
     fn linked_to(&self) -> Result<PathBuf> {
         Ok(self.dst.clone())
+    }
+}
+
+impl fmt::Debug for InitramFsSymlink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("InitramFsSymlink")
+            .field("name", &self.filename)
+            .finish()
     }
 }
 
@@ -255,6 +279,7 @@ impl InitramFs {
                         stat: Stat {
                             inode_no: INodeNo::new(ino),
                             mode,
+                            size: FileSize(filesize as isize),
                             ..Stat::zeroed()
                         },
                     })),
@@ -296,6 +321,10 @@ impl FileSystem for InitramFs {
 pub fn init() {
     INITRAM_FS.init(|| {
         let image = include_bytes!(concat!("../../", env!("INITRAMFS_PATH")));
+        if image.is_empty() {
+            panic!("initramfs is not embedded");
+        }
+
         Arc::new(InitramFs::new(image))
     });
 }

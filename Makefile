@@ -1,9 +1,12 @@
 # Default values for build system.
-export V         ?=
-export GUI       ?=
-export RELEASE   ?=
-export ARCH      ?= x64
-export VERSION   ?= v0.8.0
+export V          ?=
+export GUI        ?=
+export RELEASE    ?=
+export ARCH       ?= x64
+export LOG        ?=
+export LOG_SERIAL ?=
+export CMDLINE    ?=
+export QEMU_ARGS  ?=
 
 # The default build target.
 .PHONY: default
@@ -20,11 +23,23 @@ endif
 
 # $(IMAGE): Use a Docker image for initramfs.
 ifeq ($(IMAGE),)
-INITRAMFS_PATH := build/kerla.initramfs
+INITRAMFS_PATH := build/testing.initramfs
+export INIT_SCRIPT := /bin/sh
 else
 IMAGE_FILENAME := $(subst /,.s,$(IMAGE))
 INITRAMFS_PATH := build/$(IMAGE_FILENAME).initramfs
 export INIT_SCRIPT := $(shell tools/inspect-init-in-docker-image.py $(IMAGE))
+endif
+
+DUMMY_INITRAMFS_PATH := build/dummy-for-lint.initramfs
+
+# Set the platform name for docker image cross compiling.
+ifeq ($(ARCH),x64)
+docker_platform = linux/amd64
+endif
+
+ifeq ($(docker_platform),)
+$(error "docker_platform is not set for $(ARCH)!")
 endif
 
 topdir      := $(PWD)
@@ -36,21 +51,26 @@ kernel_symbols := $(kernel_elf:.elf=.symbols)
 
 PROGRESS   := printf "  \\033[1;96m%8s\\033[0m  \\033[1;m%s\\033[0m\\n"
 PYTHON3    ?= python3
-CARGO      ?= cargo +nightly
+CARGO      ?= cargo
 BOCHS      ?= bochs
 NM         ?= rust-nm
 READELF    ?= readelf
 STRIP      ?= rust-strip
+DRAWIO     ?= /Applications/draw.io.app/Contents/MacOS/draw.io
 
 export RUSTFLAGS = -Z emit-stack-sizes
 CARGOFLAGS += -Z build-std=core,alloc -Z build-std-features=compiler-builtins-mem
 CARGOFLAGS += --target $(target_json)
 CARGOFLAGS += $(if $(RELEASE),--release,)
-TESTCARGOFLAGS += --package kerla -Z unstable-options
-TESTCARGOFLAGS += --config "target.$(ARCH).runner = '$(PYTHON3) $(topdir)/tools/run-qemu.py --arch $(ARCH)'"
+TESTCARGOFLAGS += --package kerla_kernel -Z unstable-options
+TESTCARGOFLAGS += --config "target.$(ARCH).runner = './tools/run-unittests.sh'"
 WATCHFLAGS += --clear
+
 export CARGO_FROM_MAKE=1
 export INITRAMFS_PATH
+export ARCH
+export PYTHON3
+export NM
 
 #
 #  Build Commands
@@ -58,7 +78,7 @@ export INITRAMFS_PATH
 .PHONY: build
 build:
 	$(MAKE) build-crate
-	cp target/$(ARCH)/$(build_mode)/kerla $(kernel_elf)
+	cp target/$(ARCH)/$(build_mode)/kerla_kernel $(kernel_elf)
 
 	$(PROGRESS) "NM" $(kernel_symbols)
 	$(NM) $(kernel_elf) | rustfilt | awk '{ $$2=""; print $$0 }' > $(kernel_symbols)
@@ -72,6 +92,7 @@ build:
 .PHONY: build-crate
 build-crate:
 	$(MAKE) initramfs
+
 	$(PROGRESS) "CARGO" "kernel"
 	$(CARGO) build $(CARGOFLAGS) --manifest-path kernel/Cargo.toml
 
@@ -92,13 +113,16 @@ iso: build
 
 .PHONY: run
 run: build
-	$(PYTHON3) tools/run-qemu.py              \
-		--arch $(ARCH)                    \
-		$(if $(GUI),--gui,)               \
-		$(if $(KVM),--kvm,)               \
-		$(if $(GDB),--gdb,)               \
-		$(if $(QEMU),--qemu $(QEMU),)     \
-		$(kernel_elf)
+	$(PYTHON3) tools/run-qemu.py                                           \
+		--arch $(ARCH)                                                 \
+		$(if $(GUI),--gui,)                                            \
+		$(if $(KVM),--kvm,)                                            \
+		$(if $(GDB),--gdb,)                                            \
+		$(if $(LOG),--append-cmdline "log=$(LOG)",)                    \
+		$(if $(CMDLINE),--append-cmdline "$(CMDLINE)",)                \
+		$(if $(LOG_SERIAL),--log-serial "$(LOG_SERIAL)",)              \
+		$(if $(QEMU),--qemu $(QEMU),)                                  \
+		$(kernel_elf) -- $(QEMU_ARGS)
 
 .PHONY: bochs
 bochs: iso
@@ -115,7 +139,8 @@ testw:
 
 .PHONY: check
 check:
-	$(CARGO) check $(CARGOFLAGS)
+	$(MAKE) $(DUMMY_INITRAMFS_PATH)
+	INITRAMFS_PATH=$(DUMMY_INITRAMFS_PATH) $(CARGO) check $(CARGOFLAGS)
 
 .PHONY: checkw
 checkw:
@@ -123,11 +148,37 @@ checkw:
 
 .PHONY: docs
 docs:
+	$(PROGRESS) "MDBOOK" build/docs
+	mkdir -p build
+	make doc-images
+	mdbook build -d $(topdir)/build/docs Documentation
+
+.PHONY: doc-images
+doc-images: $(patsubst %.drawio, %.svg, $(wildcard Documentation/*.drawio))
+
+.PHONY: docsw
+docsw:
+	mkdir -p build
+	mdbook serve -d $(topdir)/build/docs Documentation
+
+.PHONY: src-docs
+src-docs:
 	RUSTFLAGS="-C panic=abort -Z panic_abort_tests" $(CARGO) doc
 
 .PHONY: lint
 lint:
-	RUSTFLAGS="-C panic=abort -Z panic_abort_tests" $(CARGO) clippy --fix -Z unstable-options --allow-dirty
+	$(MAKE) $(DUMMY_INITRAMFS_PATH)
+	INITRAMFS_PATH=$(DUMMY_INITRAMFS_PATH) RUSTFLAGS="-C panic=abort -Z panic_abort_tests" $(CARGO) clippy
+
+.PHONY: strict-lint
+strict-lint:
+	$(MAKE) $(DUMMY_INITRAMFS_PATH)
+	INITRAMFS_PATH=$(DUMMY_INITRAMFS_PATH) RUSTFLAGS="-C panic=abort -Z panic_abort_tests" $(CARGO) clippy -- -D warnings
+
+.PHONY: lint-and-fix
+lint-and-fix:
+	$(MAKE) $(DUMMY_INITRAMFS_PATH)
+	INITRAMFS_PATH=$(DUMMY_INITRAMFS_PATH) RUSTFLAGS="-C panic=abort -Z panic_abort_tests" $(CARGO) clippy --fix -Z unstable-options
 
 .PHONY: print-stack-sizes
 print-stack-sizes: build
@@ -141,13 +192,22 @@ clean:
 #
 #  Build Rules
 #
-build/kerla.initramfs: $(wildcard initramfs/*.py) Makefile
+build/testing.initramfs: $(wildcard testing/*) $(wildcard testing/*/*) Makefile
+	$(PROGRESS) "BUILD" testing
+	cd testing && docker buildx build --platform $(docker_platform) -t kerla-testing .
+	$(PROGRESS) "EXPORT" testing
 	mkdir -p build
-	$(PYTHON3) initramfs/__init__.py                       \
-		--build-dir build/initramfs                   \
-		-o $@
+	$(PYTHON3) tools/docker2initramfs.py $@ kerla-testing
 
 build/$(IMAGE_FILENAME).initramfs: tools/docker2initramfs.py Makefile
 	$(PROGRESS) "EXPORT" $(IMAGE)
 	mkdir -p build
 	$(PYTHON3) tools/docker2initramfs.py $@ $(IMAGE)
+
+$(DUMMY_INITRAMFS_PATH):
+	mkdir -p $(@D)
+	touch $@
+
+%.svg: %.drawio
+	$(PROGRESS) "DRAWIO" $@
+	$(DRAWIO) -x -f svg -o $@ $<
